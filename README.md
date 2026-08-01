@@ -62,8 +62,9 @@ Si al subir los archivos a GitHub y conectar Cloudflare Pages obtienes una pági
 
 1. **Directorio de salida incorrecto (Output Directory)**:
    - En la configuración de Cloudflare Pages, debes asegurarte de colocar como **Build output directory**: `dist`. Si se deja en blanco o con otro nombre (`public` o `build`), Cloudflare no encontrará los archivos compilados por Vite.
-2. **Rutas relativas de assets en Vite**:
-   - Ya hemos configurado `base: './'` en `vite.config.ts` para garantizar que los archivos CSS y JS carguen correctamente sin importar el subdominio.
+2. **Error de MIME Type (`application/octet-stream`)**:
+   - Cuando Vite genera assets con `base: './'`, Cloudflare Pages puede servir los archivos JavaScript con la cabecera `Content-Type: application/octet-stream`, lo que provoca que los navegadores bloqueen la ejecución de scripts ES Module por seguridad.
+   - **Solución implementada**: Se configuró `base: '/'` en `vite.config.ts`, y se agregaron los archivos `/public/_headers` y `/public/_redirects` para forzar las cabeceras `Content-Type: application/javascript; charset=utf-8` en todos los archivos `.js` compilados en `dist/`.
 3. **Enrutamiento SPA (Single Page Application)**:
    - Agregamos el archivo `public/_redirects` con el contenido `/* /index.html 200` para que cualquier ruta redirija correctamente al HTML principal.
 4. **Servidor Node vs Alojamiento Estático**:
