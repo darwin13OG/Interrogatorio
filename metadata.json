@@ -1,0 +1,6 @@
+{
+  "name": "Sistema de Juego de Misterio e Interrogatorio",
+  "description": "Un juego interactivo de investigación criminal donde debes interrogar a un sospechoso en máximo 10 mensajes para resolver el crimen.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
