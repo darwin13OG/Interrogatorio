@@ -9,6 +9,7 @@ import { AccusationModal } from './components/AccusationModal';
 import { FinalSolutionView } from './components/FinalSolutionView';
 import { RulesModal } from './components/RulesModal';
 import { DetectiveNotebook } from './components/DetectiveNotebook';
+import { AppSplashScreen } from './components/AppSplashScreen';
 import { soundManager } from './utils/audio';
 
 export default function App() {
@@ -18,6 +19,9 @@ export default function App() {
   const [currentMessageNumber, setCurrentMessageNumber] = useState<number>(1);
   const [currentNervousness, setCurrentNervousness] = useState<'tranquilo' | 'prevenido' | 'nervioso' | 'acorralado' | 'desmoronado'>('tranquilo');
   const [gameStatus, setGameStatus] = useState<'interrogando' | 'resuelto'>('interrogando');
+
+  // App initial loading screen state
+  const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
 
   // Modals and UI overlays
   const [inspectingEvidence, setInspectingEvidence] = useState<Evidencia | null>(null);
@@ -106,47 +110,127 @@ ${evidenciasFormatted}
     setIsWaitingResponse(true);
 
     try {
-      const response = await fetch('/api/case/interrogate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caso: currentCaso,
-          history: messages.map((m) => ({ sender: m.sender, text: m.text })),
-          userQuestion: userQuestionText,
-          messageNumber: nextMsgNumber,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        if (data.contradictionDetected) {
-          soundManager.playContradiction();
-        } else {
-          soundManager.playTypewriter();
-        }
-
+      // Message 9 Rule
+      if (nextMsgNumber === 9) {
         const suspectMsg: Message = {
           id: `susp-${Date.now()}`,
           sender: 'sospechoso',
-          text: data.text,
-          mensajeNumero: nextMsgNumber,
-          nervousnessLevel: data.nervousnessLevel || 'tranquilo',
-          contradictionDetected: !!data.contradictionDetected,
+          text: 'Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)',
+          mensajeNumero: 9,
+          nervousnessLevel: 'acorralado',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         };
-
         setMessages((prev) => [...prev, suspectMsg]);
-        setCurrentMessageNumber(nextMsgNumber);
-        if (data.nervousnessLevel) {
-          setCurrentNervousness(data.nervousnessLevel);
+        setCurrentMessageNumber(9);
+        setCurrentNervousness('acorralado');
+        return;
+      }
+
+      // Message 10 Rule
+      if (nextMsgNumber === 10) {
+        const suspectMsg: Message = {
+          id: `susp-${Date.now()}`,
+          sender: 'sospechoso',
+          text: 'Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)',
+          mensajeNumero: 10,
+          nervousnessLevel: 'desmoronado',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages((prev) => [...prev, suspectMsg]);
+        setCurrentMessageNumber(10);
+        setCurrentNervousness('desmoronado');
+        setIsAccusationOpen(true);
+        return;
+      }
+
+      let data: any = null;
+      try {
+        const response = await fetch('/api/case/interrogate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            caso: currentCaso,
+            history: messages.map((m) => ({ sender: m.sender, text: m.text })),
+            userQuestion: userQuestionText,
+            messageNumber: nextMsgNumber,
+          }),
+        });
+        if (response.ok) {
+          data = await response.json();
+        }
+      } catch (e) {
+        console.warn('API backend not reachable, using client rule-based interrogation engine:', e);
+      }
+
+      // Fallback if API unavailable or failed
+      if (!data || !data.success) {
+        const lowerQ = userQuestionText.toLowerCase();
+        const mentionsEvidence = currentCaso.evidencias.some((ev) =>
+          lowerQ.includes(ev.nombre.toLowerCase()) || lowerQ.includes('evidencia') || lowerQ.includes('pista')
+        );
+        const contradictionKeyword = currentCaso.secretTruth.contradiccionClave.toLowerCase().substring(0, 15);
+        const mentionsContradiction = lowerQ.includes(contradictionKeyword) ||
+          lowerQ.includes('mientes') || lowerQ.includes('camara') || lowerQ.includes('reloj') || lowerQ.includes('pañuelo') || lowerQ.includes('tarjeta');
+
+        let respText = '';
+        let nervousness: 'tranquilo' | 'prevenido' | 'nervioso' | 'acorralado' | 'desmoronado' = 'tranquilo';
+        let isContradiction = false;
+
+        if (mentionsContradiction || (mentionsEvidence && nextMsgNumber >= 5)) {
+          nervousness = nextMsgNumber >= 7 ? 'acorralado' : 'nervioso';
+          isContradiction = true;
+          respText = `...¿Q-qué dice? Eso no prueba nada... ¡Esa evidencia pudo haber sido colocada por alguien más! ¿De dónde sacó esa información, detective?`;
+        } else if (mentionsEvidence) {
+          nervousness = 'prevenido';
+          respText = `Ah, eso... tiene una explicación perfectamente lógica. No saque conclusiones apresuradas sobre objetos que ni siquiera me pertenecen.`;
+        } else {
+          if (currentCaso.sospechoso.personalidad === 'arrogante') {
+            respText = `Detective, sus preguntas son absurdas. Le aconsejo no hacerme perder el tiempo si no tiene pruebas concretas.`;
+          } else if (currentCaso.sospechoso.personalidad === 'nervioso') {
+            respText = `No... no entiendo por qué sigue presionándome. Ya le dije todo lo que sé. No tuve nada que ver en esto...`;
+          } else if (currentCaso.sospechoso.personalidad === 'frío') {
+            respText = `Su teoría carece de fundamento. Mis respuestas ya fueron entregadas en mi declaración inicial.`;
+          } else {
+            respText = `Tranquilícese, detective. Se nota que está desesperado por resolver esto, pero está mirando en la dirección equivocada.`;
+          }
         }
 
-        // Auto-trigger accusation prompt on Message 10 if reached
-        if (nextMsgNumber >= 10) {
-          setIsAccusationOpen(true);
-        }
+        respText += ` (Mensaje ${nextMsgNumber}/10)`;
+
+        data = {
+          success: true,
+          text: respText,
+          nervousnessLevel: nervousness,
+          contradictionDetected: isContradiction,
+        };
       }
+
+      if (data.contradictionDetected) {
+        soundManager.playContradiction();
+      } else {
+        soundManager.playTypewriter();
+      }
+
+      const suspectMsg: Message = {
+        id: `susp-${Date.now()}`,
+        sender: 'sospechoso',
+        text: data.text,
+        mensajeNumero: nextMsgNumber,
+        nervousnessLevel: data.nervousnessLevel || 'tranquilo',
+        contradictionDetected: !!data.contradictionDetected,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      setMessages((prev) => [...prev, suspectMsg]);
+      setCurrentMessageNumber(nextMsgNumber);
+      if (data.nervousnessLevel) {
+        setCurrentNervousness(data.nervousnessLevel);
+      }
+
+      if (nextMsgNumber >= 10) {
+        setIsAccusationOpen(true);
+      }
+
     } catch (err) {
       console.error('Error enviando pregunta:', err);
     } finally {
@@ -158,16 +242,30 @@ ${evidenciasFormatted}
   const handleGenerateAiCase = async () => {
     setIsGeneratingAi(true);
     try {
-      const res = await fetch('/api/case/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (data.success && data.case) {
+      let data: any = null;
+      try {
+        const res = await fetch('/api/case/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (e) {
+        console.warn('Backend not reachable for AI case gen, selecting preset fallback:', e);
+      }
+
+      if (data && data.success && data.case) {
         startNewCase(data.case, !!data.isAiGenerated);
+      } else {
+        // Fallback to random preset
+        const randomPreset = PRESET_CASES[Math.floor(Math.random() * PRESET_CASES.length)];
+        startNewCase(randomPreset, false);
       }
     } catch (err) {
       console.error('Error generando caso IA:', err);
+      const randomPreset = PRESET_CASES[Math.floor(Math.random() * PRESET_CASES.length)];
+      startNewCase(randomPreset, false);
     } finally {
       setIsGeneratingAi(false);
     }
@@ -179,22 +277,47 @@ ${evidenciasFormatted}
     soundManager.playGavel();
 
     try {
-      const res = await fetch('/api/case/verdict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caso: currentCaso,
-          userVerdict: verdictText,
-          history: messages.map((m) => ({ sender: m.sender, text: m.text })),
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success && data.finalSolution) {
-        setFinalSolution(data.finalSolution);
-        setGameStatus('resuelto');
-        setIsAccusationOpen(false);
+      let data: any = null;
+      try {
+        const res = await fetch('/api/case/verdict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            caso: currentCaso,
+            userVerdict: verdictText,
+            history: messages.map((m) => ({ sender: m.sender, text: m.text })),
+          }),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (e) {
+        console.warn('API backend not reachable for verdict, evaluating locally:', e);
       }
+
+      if (!data || !data.success || !data.finalSolution) {
+        const userGuiltyGuess = verdictText.toLowerCase().includes('culpable') || verdictText.toLowerCase().includes(currentCaso.sospechoso.nombre.toLowerCase());
+        const isCorrect = userGuiltyGuess === currentCaso.secretTruth.esCulpable;
+
+        data = {
+          success: true,
+          finalSolution: {
+            esCulpable: currentCaso.secretTruth.esCulpable,
+            secretoOculto: currentCaso.secretTruth.secretoOculto,
+            explicacionPistas: currentCaso.secretTruth.comoConectanPistas,
+            evaluacionDetective: isCorrect
+              ? '¡Excelente deducción, detective! Logró conectar la evidencia física con las grietas en la coartada del sospechoso.'
+              : 'El veredicto entregado difiere de las conclusiones de la fiscalía. Revise las evidencias minuciosamente.',
+            calificacion: isCorrect ? 'A+' : 'C',
+            mensajeVeredicto: verdictText
+          }
+        };
+      }
+
+      setFinalSolution(data.finalSolution);
+      setGameStatus('resuelto');
+      setIsAccusationOpen(false);
+
     } catch (err) {
       console.error('Error al entregar veredicto:', err);
     } finally {
@@ -320,6 +443,10 @@ ${evidenciasFormatted}
         isOpen={isNotebookOpen}
         onClose={() => setIsNotebookOpen(false)}
       />
+
+      {isAppLoading && (
+        <AppSplashScreen onComplete={() => setIsAppLoading(false)} />
+      )}
 
       {/* Footer copyright */}
       <footer className="bg-zinc-950 border-t border-zinc-900 py-3 text-center text-[11px] font-mono text-zinc-600">
