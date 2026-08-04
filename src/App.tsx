@@ -110,39 +110,6 @@ ${evidenciasFormatted}
     setIsWaitingResponse(true);
 
     try {
-      // Message 9 Rule
-      if (nextMsgNumber === 9) {
-        const suspectMsg: Message = {
-          id: `susp-${Date.now()}`,
-          sender: 'sospechoso',
-          text: 'Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)',
-          mensajeNumero: 9,
-          nervousnessLevel: 'acorralado',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, suspectMsg]);
-        setCurrentMessageNumber(9);
-        setCurrentNervousness('acorralado');
-        return;
-      }
-
-      // Message 10 Rule
-      if (nextMsgNumber === 10) {
-        const suspectMsg: Message = {
-          id: `susp-${Date.now()}`,
-          sender: 'sospechoso',
-          text: 'Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)',
-          mensajeNumero: 10,
-          nervousnessLevel: 'desmoronado',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, suspectMsg]);
-        setCurrentMessageNumber(10);
-        setCurrentNervousness('desmoronado');
-        setIsAccusationOpen(true);
-        return;
-      }
-
       let data: any = null;
       try {
         const response = await fetch('/api/case/interrogate', {
@@ -159,7 +126,7 @@ ${evidenciasFormatted}
           data = await response.json();
         }
       } catch (e) {
-        console.warn('API backend not reachable, using client rule-based interrogation engine:', e);
+        console.warn('Backend unavailable, using local interrogation engine:', e);
       }
 
       // Fallback if API unavailable or failed
@@ -195,7 +162,15 @@ ${evidenciasFormatted}
           }
         }
 
-        respText += ` (Mensaje ${nextMsgNumber}/10)`;
+        if (nextMsgNumber === 9) {
+          respText += ` Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)`;
+          nervousness = 'acorralado';
+        } else if (nextMsgNumber === 10) {
+          respText += ` Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)`;
+          nervousness = 'desmoronado';
+        } else {
+          respText += ` (Mensaje ${nextMsgNumber}/10)`;
+        }
 
         data = {
           success: true,

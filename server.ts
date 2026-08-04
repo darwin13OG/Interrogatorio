@@ -121,7 +121,7 @@ Debe incluir:
   } catch (error) {
     console.error('Error generando caso con AI:', error);
     const randomCase = PRESET_CASES[Math.floor(Math.random() * PRESET_CASES.length)];
-    return res.json({ success: true, case: randomCase, isAiGenerated: false, fallbackNotice: 'Se usó un caso predeterminado por fallo en red.' });
+    return res.json({ success: true, case: randomCase, isAiGenerated: false });
   }
 });
 
@@ -130,26 +130,6 @@ app.post('/api/case/interrogate', async (req, res) => {
   try {
     const { caso, history, userQuestion, messageNumber } = req.body;
     const ai = getGeminiClient();
-
-    // Message 9 Rule
-    if (messageNumber === 9) {
-      return res.json({
-        success: true,
-        text: 'Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)',
-        nervousnessLevel: 'acorralado',
-        messageNumber: 9
-      });
-    }
-
-    // Message 10 Rule
-    if (messageNumber === 10) {
-      return res.json({
-        success: true,
-        text: 'Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)',
-        nervousnessLevel: 'desmoronado',
-        messageNumber: 10
-      });
-    }
 
     if (!ai) {
       // Rule-based fallback suspect response if no Gemini API key
@@ -183,7 +163,15 @@ app.post('/api/case/interrogate', async (req, res) => {
         }
       }
 
-      responseText += ` (Mensaje ${messageNumber}/10)`;
+      if (messageNumber === 9) {
+        responseText += ` Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)`;
+        nervousness = 'acorralado';
+      } else if (messageNumber === 10) {
+        responseText += ` Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)`;
+        nervousness = 'desmoronado';
+      } else {
+        responseText += ` (Mensaje ${messageNumber}/10)`;
+      }
 
       return res.json({
         success: true,
@@ -210,11 +198,13 @@ Detalles secretos del caso (SOLO PARA TU CONOCIMIENTO INTERNO):
 - Contradicción clave entre evidencias y tu declaración: ${caso.secretTruth.contradiccionClave}.
 
 REGLAS DE INTERROGATORIO RIGUROSAS:
-1. Responde de acuerdo a tu personalidad (${caso.sospechoso.personalidad}).
+1. Responde directamente a la pregunta o afirmación del detective de acuerdo a tu personalidad (${caso.sospechoso.personalidad}) y los hechos del caso.
 2. NO confieses de inmediato. Mantén tu coartada al principio.
 3. Si el detective encuentra la contradicción lógica entre tus respuestas o la declaración y las 3 evidencias físicas, ponte nervioso o acorralado.
 4. Nivel de nerviosismo posible: "tranquilo", "prevenido", "nervioso", "acorralado", "desmoronado".
-5. OBLIGATORIO: AL FINAL DE TU RESPUESTA DEBES ESCRIBIR EXACTAMENTE EL CONTADOR: "(Mensaje ${messageNumber}/10)". Ejemplo: "...eso no es verdad. (Mensaje ${messageNumber}/10)".
+5. Si es el Mensaje 9 (Penúltimo mensaje): Responde la pregunta del detective en personaje sobre el caso y OBLIGATORIAMENTE incluye al final: "Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)".
+6. Si es el Mensaje 10 (Último mensaje): Responde la última pregunta del detective en personaje sobre el caso y OBLIGATORIAMENTE incluye al final: "Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)".
+7. OBLIGATORIO: AL FINAL DE TU RESPUESTA DEBES ESCRIBIR EXACTAMENTE EL CONTADOR: "(Mensaje ${messageNumber}/10)".
 
 Retorna la respuesta en formato JSON estructurado.`;
 
@@ -234,7 +224,7 @@ Retorna la respuesta en formato JSON estructurado.`;
           properties: {
             text: {
               type: Type.STRING,
-              description: `Respuesta en personaje terminando OBLIGATORIAMENTE con (Mensaje ${messageNumber}/10)`
+              description: `Respuesta en personaje respondiendo la pregunta del detective y terminando OBLIGATORIAMENTE con (Mensaje ${messageNumber}/10)`
             },
             nervousnessLevel: {
               type: Type.STRING,
@@ -252,14 +242,20 @@ Retorna la respuesta en formato JSON estructurado.`;
 
     if (response.text) {
       const data = JSON.parse(response.text.trim());
-      // Ensure counter is at the end if missing
-      if (!data.text.includes(`(Mensaje ${messageNumber}/10)`)) {
-        data.text = `${data.text.trim()} (Mensaje ${messageNumber}/10)`;
+      let responseTxt = data.text;
+
+      if (messageNumber === 9 && !responseTxt.includes('cansando')) {
+        responseTxt = `${responseTxt.replace(/\(Mensaje 9\/10\)/g, '').trim()} Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)`;
+      } else if (messageNumber === 10 && !responseTxt.includes('acabó el tiempo')) {
+        responseTxt = `${responseTxt.replace(/\(Mensaje 10\/10\)/g, '').trim()} Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)`;
+      } else if (!responseTxt.includes(`(Mensaje ${messageNumber}/10)`)) {
+        responseTxt = `${responseTxt.trim()} (Mensaje ${messageNumber}/10)`;
       }
+
       return res.json({
         success: true,
-        text: data.text,
-        nervousnessLevel: data.nervousnessLevel || 'tranquilo',
+        text: responseTxt,
+        nervousnessLevel: data.nervousnessLevel || (messageNumber === 10 ? 'desmoronado' : messageNumber === 9 ? 'acorralado' : 'tranquilo'),
         contradictionDetected: !!data.contradictionDetected,
         messageNumber
       });
@@ -268,10 +264,18 @@ Retorna la respuesta en formato JSON estructurado.`;
     }
   } catch (err) {
     console.error('Error en interrogatorio:', err);
+    let fallbackTxt = `...Prefiero no responder a eso sin la presencia de mi abogado.`;
+    if (req.body.messageNumber === 9) {
+      fallbackTxt += ` Me estoy cansando de esto. Haga su última pregunta. (Mensaje 9/10)`;
+    } else if (req.body.messageNumber === 10) {
+      fallbackTxt += ` Se acabó el tiempo. ¿De qué me acusa exactamente y por qué? (Mensaje 10/10)`;
+    } else {
+      fallbackTxt += ` (Mensaje ${req.body.messageNumber}/10)`;
+    }
     return res.json({
       success: true,
-      text: `...Prefiero no responder a eso sin la presencia de mi abogado. (Mensaje ${req.body.messageNumber}/10)`,
-      nervousnessLevel: 'prevenido',
+      text: fallbackTxt,
+      nervousnessLevel: req.body.messageNumber === 10 ? 'desmoronado' : 'prevenido',
       messageNumber: req.body.messageNumber
     });
   }
